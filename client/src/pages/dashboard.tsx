@@ -1,6 +1,6 @@
 import { useInventoryLogs, useProducts, useSales } from "@/hooks/use-inventory";
 import { StatsCard } from "@/components/stats-card";
-import { Package, AlertTriangle, DollarSign, Activity } from "lucide-react";
+import { Package, AlertTriangle, IndianRupee, Activity } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   AreaChart, 
@@ -67,7 +67,7 @@ export default function Dashboard() {
         <StatsCard 
           title="Total Revenue" 
           value={`₹${totalRevenue.toLocaleString('en-IN')}`} 
-          icon={DollarSign}
+          icon={IndianRupee}
           description="All time sales volume"
         />
         <StatsCard 

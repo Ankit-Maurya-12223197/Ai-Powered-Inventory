@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { DollarSign, Plus, Calendar } from "lucide-react";
+import { IndianRupee, Plus, Calendar } from "lucide-react";
 import { format } from "date-fns";
 
 const saleFormSchema = insertSaleSchema.extend({
@@ -93,7 +93,7 @@ export default function Sales() {
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
           <DialogTrigger asChild>
             <Button className="bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-600/20">
-              <DollarSign className="w-4 h-4 mr-2" />
+              <IndianRupee className="w-4 h-4 mr-2" />
               Record New Sale
             </Button>
           </DialogTrigger>

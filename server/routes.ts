@@ -389,22 +389,65 @@ Provide clear, concise answers with specific numbers and recommendations. Format
     }
   });
 
-  // Seed Data
+  // Seed Data — Indian artisan inventory
   const existingProducts = await storage.getProducts();
-  if (existingProducts.length === 0) {
-    console.log("Seeding database...");
-    
-    // Materials
-    const wood = await storage.createMaterial({ name: "Oak Wood", sku: "MAT-OAK", quantity: 50, unit: "planks", costPerUnit: 15.50, minStockLevel: 10 });
-    const steel = await storage.createMaterial({ name: "Steel Rod", sku: "MAT-STEEL", quantity: 100, unit: "rods", costPerUnit: 5.25, minStockLevel: 20 });
-    const varnish = await storage.createMaterial({ name: "Wood Varnish", sku: "MAT-VARNISH", quantity: 20, unit: "liters", costPerUnit: 12.00, minStockLevel: 5 });
+  const needsReseed = existingProducts.length === 0 || 
+    (existingProducts.length > 0 && existingProducts[0].name === "Modern Oak Chair");
 
-    // Products
-    const chair = await storage.createProduct({ name: "Modern Oak Chair", sku: "PROD-001", description: "Minimalist oak chair", quantity: 12, price: 150.00 });
-    const table = await storage.createProduct({ name: "Industrial Steel Table", sku: "PROD-002", description: "Sturdy steel table", quantity: 5, price: 300.00 });
-    const shelf = await storage.createProduct({ name: "Wall Shelf", sku: "PROD-003", description: "Floating wall shelf", quantity: 25, price: 45.00 });
+  if (needsReseed) {
+    console.log("Seeding database with Indian artisan data...");
 
-    console.log("Database seeded!");
+    // Clear existing data if re-seeding
+    if (existingProducts.length > 0) {
+      await db.delete(inventoryLogs);
+      await db.delete(sales);
+      await db.delete(products);
+      await db.delete(materials);
+    }
+
+    // --- Raw Materials ---
+    const teak   = await storage.createMaterial({ name: "Teak Wood (Sagwan)", sku: "MAT-TEAK", quantity: 80, unit: "planks", costPerUnit: 1200, minStockLevel: 15 });
+    const bamboo = await storage.createMaterial({ name: "Bamboo Poles", sku: "MAT-BAMB", quantity: 150, unit: "poles", costPerUnit: 80, minStockLevel: 30 });
+    const jute   = await storage.createMaterial({ name: "Jute Fiber", sku: "MAT-JUTE", quantity: 60, unit: "kg", costPerUnit: 45, minStockLevel: 10 });
+    const brass  = await storage.createMaterial({ name: "Brass Hardware", sku: "MAT-BRASS", quantity: 200, unit: "pcs", costPerUnit: 35, minStockLevel: 50 });
+    const cotton = await storage.createMaterial({ name: "Handloom Cotton", sku: "MAT-COTTN", quantity: 40, unit: "meters", costPerUnit: 120, minStockLevel: 8 });
+    const marble = await storage.createMaterial({ name: "Rajasthan Marble", sku: "MAT-MARBR", quantity: 25, unit: "sqft", costPerUnit: 650, minStockLevel: 5 });
+    const varnish = await storage.createMaterial({ name: "Sheesham Wood Varnish", sku: "MAT-VARN", quantity: 30, unit: "liters", costPerUnit: 280, minStockLevel: 6 });
+    const cane   = await storage.createMaterial({ name: "Rattan Cane", sku: "MAT-CANE", quantity: 90, unit: "rolls", costPerUnit: 175, minStockLevel: 20 });
+
+    // --- Finished Products ---
+    const chair1 = await storage.createProduct({ name: "Sheesham Wood Dining Chair", sku: "PROD-001", description: "Hand-carved Jodhpur dining chair with brass accents", quantity: 18, price: 4500 });
+    const table1 = await storage.createProduct({ name: "Rajasthani Teak Dining Table", sku: "PROD-002", description: "6-seater solid teak table, Jaipur craft", quantity: 6, price: 28000 });
+    const lamp1  = await storage.createProduct({ name: "Jaipur Brass Floor Lamp", sku: "PROD-003", description: "Handcrafted brass lamp with filigree work", quantity: 22, price: 3200 });
+    const shelf1 = await storage.createProduct({ name: "Bamboo Wall Shelf Unit", sku: "PROD-004", description: "Eco-friendly bamboo floating shelf, 3 tier", quantity: 35, price: 1800 });
+    const rug1   = await storage.createProduct({ name: "Kashmiri Handwoven Carpet", sku: "PROD-005", description: "Pure wool 6x4 ft carpet, traditional motifs", quantity: 9, price: 15000 });
+    const box1   = await storage.createProduct({ name: "Sandalwood Jewellery Box", sku: "PROD-006", description: "Mysore sandalwood inlay work, 12 compartments", quantity: 30, price: 2200 });
+    const stool1 = await storage.createProduct({ name: "Cane & Rattan Stool", sku: "PROD-007", description: "Handwoven rattan stool, Kerala style", quantity: 14, price: 1200 });
+    const screen1 = await storage.createProduct({ name: "Marble Inlay Decorative Plate", sku: "PROD-008", description: "Agra marble pietra dura 12-inch plate", quantity: 40, price: 950 });
+
+    // --- Sales Records (last 14 days) ---
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString();
+
+    const salesData = [
+      { productId: chair1.id, quantity: 3, totalPrice: 13500 },
+      { productId: lamp1.id,  quantity: 5, totalPrice: 16000 },
+      { productId: shelf1.id, quantity: 8, totalPrice: 14400 },
+      { productId: box1.id,   quantity: 10, totalPrice: 22000 },
+      { productId: rug1.id,   quantity: 2, totalPrice: 30000 },
+      { productId: table1.id, quantity: 1, totalPrice: 28000 },
+      { productId: stool1.id, quantity: 6, totalPrice: 7200 },
+      { productId: screen1.id, quantity: 12, totalPrice: 11400 },
+      { productId: chair1.id, quantity: 2, totalPrice: 9000 },
+      { productId: lamp1.id,  quantity: 4, totalPrice: 12800 },
+      { productId: box1.id,   quantity: 7, totalPrice: 15400 },
+      { productId: shelf1.id, quantity: 5, totalPrice: 9000 },
+    ];
+
+    for (const s of salesData) {
+      await storage.createSale(s);
+    }
+
+    console.log("Indian artisan database seeded successfully!");
   }
 
   return httpServer;
