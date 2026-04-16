@@ -302,69 +302,158 @@ Provide clear, concise answers with specific numbers and recommendations. Format
     }
   });
 
-  // Enhanced Vision Scan Endpoint with Camera Support
+  // Enhanced Vision Scan Endpoint with AI Image Analysis
   app.post('/api/vision/scan', upload.single('image'), async (req, res) => {
     try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No image provided. Please capture an image first.' });
+      }
+
       const productsList = await db.select().from(products);
       if (productsList.length === 0) {
-        return res.status(404).json({ error: 'No products found' });
+        return res.status(404).json({ error: 'No products found in inventory' });
       }
 
-      const randomProduct = productsList[Math.floor(Math.random() * productsList.length)];
-      const confidence = Math.random() * 0.35 + 0.65; // 0.65 - 1.0
-      
-      const statuses = ['OK', 'OK', 'OK', 'OK', 'DAMAGED', 'NON_STANDARD'];
-      const status = statuses[Math.floor(Math.random() * statuses.length)];
-      
+      const imageBase64 = req.file.buffer.toString('base64');
+      const imageDataUrl = `data:${req.file.mimetype};base64,${imageBase64}`;
+
+      const productCatalog = productsList.map(p =>
+        `SKU: ${p.sku} | Name: ${p.name} | Description: ${p.description || 'N/A'}`
+      ).join('\n');
+
+      const systemPrompt = `You are an AI vision system for an Indian artisan inventory management system.
+Your task is to analyze the provided image and identify if any product from the catalog is visible.
+
+Product Catalog:
+${productCatalog}
+
+Respond ONLY with a valid JSON object in this exact format:
+{
+  "detected": true or false,
+  "sku": "SKU of detected product or null",
+  "product_name": "Name of detected product or null",
+  "confidence": 0.0 to 1.0 (how confident you are),
+  "status": "OK" or "DAMAGED" or "NON_STANDARD" (condition of item),
+  "bounding_box": {
+    "x_pct": 0-100 (left edge as % of image width),
+    "y_pct": 0-100 (top edge as % of image height),
+    "w_pct": 1-100 (width as % of image width),
+    "h_pct": 1-100 (height as % of image height)
+  },
+  "color": "dominant color of the object",
+  "texture": "surface texture description",
+  "dimensions_estimate": "rough size estimate like 30x20x10 cm",
+  "notes": "brief observation about condition or quality"
+}
+
+If you cannot clearly identify any product from the catalog, set detected to false and sku/product_name to null with a low confidence.
+Be honest — do not guess randomly. Base your answer on what you actually see in the image.`;
+
+      const aiResponse = await openai.chat.completions.create({
+        model: 'claude-haiku-4.5',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: systemPrompt },
+              { type: 'image_url', image_url: { url: imageDataUrl } }
+            ]
+          }
+        ],
+        max_tokens: 500,
+      });
+
+      const rawContent = aiResponse.choices[0]?.message?.content || '{}';
+      let aiResult: {
+        detected: boolean;
+        sku: string | null;
+        product_name: string | null;
+        confidence: number;
+        status: string;
+        bounding_box: { x_pct: number; y_pct: number; w_pct: number; h_pct: number };
+        color: string;
+        texture: string;
+        dimensions_estimate: string;
+        notes: string | null;
+      };
+
+      try {
+        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+        aiResult = JSON.parse(jsonMatch ? jsonMatch[0] : rawContent);
+      } catch {
+        return res.status(500).json({ error: 'AI returned invalid response. Please try again.' });
+      }
+
+      // Find matching product from catalog
+      let matchedProduct = productsList.find(p => p.sku === aiResult.sku);
+      if (!matchedProduct && aiResult.detected) {
+        matchedProduct = productsList.find(p =>
+          p.name.toLowerCase().includes((aiResult.product_name || '').toLowerCase())
+        );
+      }
+
+      if (!aiResult.detected || !matchedProduct) {
+        return res.json({
+          success: false,
+          detected: false,
+          message: 'No inventory item recognised in the image. Try holding the item closer and in better light.',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // Convert percentage bounding box to safe values
+      const bb = aiResult.bounding_box || { x_pct: 20, y_pct: 20, w_pct: 60, h_pct: 60 };
       const boundingBox = {
-        x: Math.floor(Math.random() * 200) + 50,
-        y: Math.floor(Math.random() * 200) + 50,
-        width: Math.floor(Math.random() * 200) + 100,
-        height: Math.floor(Math.random() * 200) + 100
+        x_pct: Math.max(0, Math.min(95, bb.x_pct || 20)),
+        y_pct: Math.max(0, Math.min(95, bb.y_pct || 20)),
+        w_pct: Math.max(5, Math.min(100 - bb.x_pct, bb.w_pct || 60)),
+        h_pct: Math.max(5, Math.min(100 - bb.y_pct, bb.h_pct || 60)),
       };
 
-      // Handle image data if uploaded
-      let imageData = null;
-      if (req.file) {
-        // Convert buffer to base64
-        imageData = req.file.buffer.toString('base64');
-        console.log('Image received:', req.file.mimetype, req.file.size, 'bytes');
-        
-        // Here you could integrate with YOLO/OpenCV for real detection
-        // For now, we'll simulate based on the uploaded image
-      }
+      // Update product scan metadata
+      await db.update(products)
+        .set({
+          detectedColor: aiResult.color || null,
+          detectedTexture: aiResult.texture || null,
+          detectedDimensions: aiResult.dimensions_estimate || null,
+          lastScannedAt: new Date().toISOString(),
+        })
+        .where(eq(products.id, matchedProduct.id));
 
-      // Prepare the insert data with all required fields
       const visionLogData = {
-        productId: randomProduct.id,
-        sku: randomProduct.sku,
-        status,
-        confidenceScore: confidence,
-        detectedClass: randomProduct.sku.split('-')[1] || 'UNKNOWN',
+        productId: matchedProduct.id,
+        sku: matchedProduct.sku,
+        status: aiResult.status || 'OK',
+        confidenceScore: aiResult.confidence,
+        detectedClass: matchedProduct.name,
         boundingBox: JSON.stringify(boundingBox),
-        imageData,
-        notes: status !== 'OK' ? `${status} detected - manual review recommended` : null
+        imageData: null,
+        notes: aiResult.notes || null
       };
 
-      // Log to database
       await db.insert(visionStatusLogs).values(visionLogData);
+      await storage.logAction("SCAN", "PRODUCT", matchedProduct.id, 0, `AI Vision Scan: ${matchedProduct.name}`);
 
       res.json({
         success: true,
+        detected: true,
         data: {
-          product_id: randomProduct.id,
-          product_name: randomProduct.name,
-          sku: randomProduct.sku,
-          confidence,
-          status,
+          product_id: matchedProduct.id,
+          product_name: matchedProduct.name,
+          sku: matchedProduct.sku,
+          confidence: aiResult.confidence,
+          status: aiResult.status || 'OK',
           bounding_box: boundingBox,
+          color: aiResult.color,
+          texture: aiResult.texture,
+          dimensions_estimate: aiResult.dimensions_estimate,
+          notes: aiResult.notes,
           timestamp: new Date().toISOString(),
-          image_processed: !!req.file
         }
       });
     } catch (error) {
       console.error('Vision scan error:', error);
-      res.status(500).json({ error: 'Vision scan failed' });
+      res.status(500).json({ error: 'Vision scan failed. Please try again.' });
     }
   });
 
