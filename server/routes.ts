@@ -16,6 +16,67 @@ const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
+const chatModel =
+  process.env.AI_INTEGRATIONS_CHAT_MODEL || "gpt-4o-mini";
+const visionModel =
+  process.env.AI_INTEGRATIONS_VISION_MODEL || chatModel;
+
+type VisionScanResult = {
+  detected: boolean;
+  object_name: string;
+  catalog_match: boolean;
+  sku: string | null;
+  confidence: number;
+  status: string;
+  bounding_box: { x_pct: number; y_pct: number; w_pct: number; h_pct: number };
+  color: string;
+  texture: string;
+  brand: string | null;
+  dimensions_estimate: string;
+  category: string;
+  notes: string | null;
+};
+
+function extractMessageText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part: any) => {
+        if (typeof part === "string") return part;
+        if (typeof part?.text === "string") return part.text;
+        if (typeof part?.content === "string") return part.content;
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+}
+
+function parseVisionScanResult(content: unknown): VisionScanResult | null {
+  const rawText = extractMessageText(content).trim();
+  if (!rawText) return null;
+
+  const normalized = rawText
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+
+  const candidates = [normalized];
+  const jsonMatch = normalized.match(/\{[\s\S]*\}/);
+  if (jsonMatch) candidates.push(jsonMatch[0]);
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as VisionScanResult;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  return null;
+}
+
 // Multer configuration for file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -211,7 +272,7 @@ When asked about:
 Provide clear, concise answers with specific numbers and recommendations. Format currency in ₹ (Indian Rupees).`;
 
       const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: chatModel,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: message }
@@ -317,7 +378,7 @@ Provide clear, concise answers with specific numbers and recommendations. Format
       const imageBase64 = req.file.buffer.toString('base64');
       const imageDataUrl = `data:${req.file.mimetype};base64,${imageBase64}`;
 
-      const productCatalog = productsList.map(p =>
+      const productCatalog = productsList.map((p: Product) =>
         `SKU: ${p.sku} | Name: ${p.name} | Description: ${p.description || 'N/A'}`
       ).join('\n');
 
@@ -355,7 +416,7 @@ Respond ONLY with a valid JSON object in this EXACT format (no extra text):
 IMPORTANT: Always detect something if any object is visible. Be specific and accurate. Never return detected:false unless the image is completely blank or unidentifiable.`;
 
       const aiResponse = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: visionModel,
         messages: [
           {
             role: 'user',
@@ -366,29 +427,13 @@ IMPORTANT: Always detect something if any object is visible. Be specific and acc
           }
         ],
         max_tokens: 600,
+        response_format: { type: 'json_object' },
       });
 
-      const rawContent = aiResponse.choices[0]?.message?.content || '{}';
-      let aiResult: {
-        detected: boolean;
-        object_name: string;
-        catalog_match: boolean;
-        sku: string | null;
-        confidence: number;
-        status: string;
-        bounding_box: { x_pct: number; y_pct: number; w_pct: number; h_pct: number };
-        color: string;
-        texture: string;
-        brand: string | null;
-        dimensions_estimate: string;
-        category: string;
-        notes: string | null;
-      };
+      const aiResult = parseVisionScanResult(aiResponse.choices[0]?.message?.content);
 
-      try {
-        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-        aiResult = JSON.parse(jsonMatch ? jsonMatch[0] : rawContent);
-      } catch {
+      if (!aiResult) {
+        console.error('Vision scan returned unparseable AI content:', aiResponse.choices[0]?.message?.content);
         return res.status(500).json({ error: 'AI returned invalid response. Please try again.' });
       }
 
@@ -402,10 +447,10 @@ IMPORTANT: Always detect something if any object is visible. Be specific and acc
       }
 
       // Try to find a matching product from catalog
-      let matchedProduct = productsList.find(p => p.sku === aiResult.sku);
+      let matchedProduct = productsList.find((p: Product) => p.sku === aiResult.sku);
       if (!matchedProduct && aiResult.catalog_match && aiResult.object_name) {
-        matchedProduct = productsList.find(p =>
-          p.name.toLowerCase().split(' ').some(word =>
+        matchedProduct = productsList.find((p: Product) =>
+          p.name.toLowerCase().split(' ').some((word: string) =>
             aiResult.object_name.toLowerCase().includes(word) && word.length > 3
           )
         );
