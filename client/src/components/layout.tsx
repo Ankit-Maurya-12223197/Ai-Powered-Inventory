@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
+import { AiChatbot } from "@/components/ai-chatbot";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -247,6 +248,9 @@ export function Layout({ children }: LayoutProps) {
           </div>
         </div>
       </main>
+
+      {/* Floating AI Chatbot */}
+      <AiChatbot />
     </div>
   );
 }
