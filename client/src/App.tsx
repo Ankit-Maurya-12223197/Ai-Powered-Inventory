@@ -11,7 +11,6 @@ import SmartScan from "@/pages/smart-scan";
 import Sales from "@/pages/sales";
 import Analytics from "@/pages/analytics";
 import NotFound from "@/pages/not-found";
-import { AIChatbotDrawer } from "@/components/ai-chatbot-drawer";
 
 function Router() {
   return (
@@ -35,7 +34,6 @@ function App() {
       <TooltipProvider>
         <Toaster />
         <Router />
-        <AIChatbotDrawer />
       </TooltipProvider>
     </QueryClientProvider>
   );
