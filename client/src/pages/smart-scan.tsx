@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   ScanLine, Box, Ruler, Palette, Activity, Camera, AlertTriangle,
-  RefreshCcw, CameraOff, Loader2, CheckCircle2, XCircle, Sparkles
+  RefreshCcw, CameraOff, Loader2, CheckCircle2, XCircle, Sparkles,
+  Tag, PackageCheck, PackageX, Layers
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { format } from "date-fns";
@@ -20,16 +21,20 @@ interface BoundingBox {
 }
 
 interface ScanResult {
-  product_id: number;
+  product_id: number | null;
   product_name: string;
   sku: string;
+  object_name: string;
   confidence: number;
   status: string;
   bounding_box: BoundingBox;
   color?: string;
   texture?: string;
+  brand?: string | null;
   dimensions_estimate?: string;
+  category?: string;
   notes?: string | null;
+  in_inventory: boolean;
   timestamp: string;
 }
 
@@ -327,17 +332,28 @@ export default function SmartScan() {
 
           {/* Scan success badge */}
           {scanResult && (
-            <div className="absolute bottom-4 left-4 z-20 bg-black/85 backdrop-blur-sm border border-green-500/40 rounded-lg p-3 max-w-[260px]">
+            <div className="absolute bottom-4 left-4 z-20 bg-black/85 backdrop-blur-sm border border-green-500/40 rounded-lg p-3 max-w-[280px]">
               <div className="flex items-center gap-1.5 mb-1">
                 <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
                 <span className="text-[10px] text-green-400 font-mono font-semibold">DETECTED</span>
+                {scanResult.in_inventory ? (
+                  <span className="text-[10px] text-blue-400 font-mono ml-auto">IN INVENTORY</span>
+                ) : (
+                  <span className="text-[10px] text-amber-400 font-mono ml-auto">NOT IN CATALOG</span>
+                )}
               </div>
-              <div className="text-base font-bold text-white leading-tight">{scanResult.product_name}</div>
+              <div className="text-base font-bold text-white leading-tight">{scanResult.object_name}</div>
+              {scanResult.brand && (
+                <div className="text-[11px] text-zinc-300 mt-0.5">Brand: {scanResult.brand}</div>
+              )}
               <div className="text-[11px] text-zinc-400 font-mono">{scanResult.sku}</div>
-              <div className="flex items-center gap-2 mt-2">
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
                 {statusBadge(scanResult.status)}
+                {scanResult.category && (
+                  <Badge variant="outline" className="text-[10px] text-zinc-300 border-zinc-600">{scanResult.category}</Badge>
+                )}
                 <span className="text-xs text-zinc-400 font-mono">
-                  {(scanResult.confidence * 100).toFixed(1)}% confidence
+                  {(scanResult.confidence * 100).toFixed(1)}%
                 </span>
               </div>
             </div>
@@ -355,30 +371,58 @@ export default function SmartScan() {
                   AI Scan Details
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2.5">
+              <CardContent className="space-y-2">
+                {/* Inventory status */}
+                <div className="flex items-center gap-2 p-2 rounded-lg border border-border/50 bg-muted/30">
+                  {scanResult.in_inventory ? (
+                    <><PackageCheck className="w-4 h-4 text-green-500 shrink-0" />
+                    <span className="text-xs text-green-600 dark:text-green-400 font-medium">Found in your inventory</span></>
+                  ) : (
+                    <><PackageX className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Not in catalog — new item</span></>
+                  )}
+                </div>
+
+                {scanResult.category && (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Layers className="w-3.5 h-3.5" />
+                      <span className="text-xs">Category</span>
+                    </div>
+                    <Badge variant="secondary" className="text-[10px]">{scanResult.category}</Badge>
+                  </div>
+                )}
+                {scanResult.brand && (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Tag className="w-3.5 h-3.5" />
+                      <span className="text-xs">Brand</span>
+                    </div>
+                    <span className="text-xs font-medium">{scanResult.brand}</span>
+                  </div>
+                )}
                 {scanResult.color && (
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Palette className="w-3.5 h-3.5" />
                       <span className="text-xs">Color</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <div className="w-3 h-3 rounded-full border border-border" style={{ backgroundColor: scanResult.color.toLowerCase() }} />
                       <span className="text-xs font-medium capitalize">{scanResult.color}</span>
                     </div>
                   </div>
                 )}
                 {scanResult.texture && (
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Box className="w-3.5 h-3.5" />
-                      <span className="text-xs">Texture</span>
+                      <span className="text-xs">Material</span>
                     </div>
                     <span className="text-xs font-medium capitalize">{scanResult.texture}</span>
                   </div>
                 )}
                 {scanResult.dimensions_estimate && (
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Ruler className="w-3.5 h-3.5" />
                       <span className="text-xs">Dimensions</span>
@@ -388,7 +432,7 @@ export default function SmartScan() {
                 )}
                 {scanResult.notes && (
                   <div className="pt-1 border-t border-border/50">
-                    <p className="text-[11px] text-muted-foreground italic">{scanResult.notes}</p>
+                    <p className="text-[11px] text-muted-foreground italic leading-relaxed">{scanResult.notes}</p>
                   </div>
                 )}
               </CardContent>

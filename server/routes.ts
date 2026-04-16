@@ -211,12 +211,12 @@ When asked about:
 Provide clear, concise answers with specific numbers and recommendations. Format currency in ₹ (Indian Rupees).`;
 
       const response = await openai.chat.completions.create({
-        model: "claude-haiku-4.5",
+        model: "gpt-4o-mini",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: message }
         ],
-        max_completion_tokens: 1024,
+        max_tokens: 1024,
       });
 
       const aiResponse = response.choices[0]?.message?.content || "I couldn't process your request.";
@@ -321,36 +321,41 @@ Provide clear, concise answers with specific numbers and recommendations. Format
         `SKU: ${p.sku} | Name: ${p.name} | Description: ${p.description || 'N/A'}`
       ).join('\n');
 
-      const systemPrompt = `You are an AI vision system for an Indian artisan inventory management system.
-Your task is to analyze the provided image and identify if any product from the catalog is visible.
+      const systemPrompt = `You are an advanced AI vision system that can identify ANY real-world object in an image.
+Your job is to:
+1. Identify the PRIMARY object visible in the image (can be ANYTHING — laptop, phone, umbrella, pen, cup, chair, carpet, lamp, etc.)
+2. Check if it matches anything in the inventory catalog below
+3. Return detailed object information
 
-Product Catalog:
+Inventory Catalog (for matching):
 ${productCatalog}
 
-Respond ONLY with a valid JSON object in this exact format:
+Respond ONLY with a valid JSON object in this EXACT format (no extra text):
 {
-  "detected": true or false,
-  "sku": "SKU of detected product or null",
-  "product_name": "Name of detected product or null",
-  "confidence": 0.0 to 1.0 (how confident you are),
-  "status": "OK" or "DAMAGED" or "NON_STANDARD" (condition of item),
+  "detected": true,
+  "object_name": "what the object actually is (e.g. Laptop, Red Umbrella, Smartphone, Wooden Chair)",
+  "catalog_match": true or false,
+  "sku": "matching SKU from catalog if it matches, otherwise null",
+  "confidence": 0.0 to 1.0,
+  "status": "OK" or "DAMAGED" or "NON_STANDARD",
   "bounding_box": {
-    "x_pct": 0-100 (left edge as % of image width),
-    "y_pct": 0-100 (top edge as % of image height),
-    "w_pct": 1-100 (width as % of image width),
-    "h_pct": 1-100 (height as % of image height)
+    "x_pct": percentage from left (0-80),
+    "y_pct": percentage from top (0-80),
+    "w_pct": width percentage (10-80),
+    "h_pct": height percentage (10-80)
   },
-  "color": "dominant color of the object",
-  "texture": "surface texture description",
-  "dimensions_estimate": "rough size estimate like 30x20x10 cm",
-  "notes": "brief observation about condition or quality"
+  "color": "primary color(s) of the object",
+  "texture": "surface material/texture (e.g. metal, plastic, fabric, wood, glass)",
+  "brand": "brand name if visible, otherwise null",
+  "dimensions_estimate": "rough estimate like 35x25x2 cm",
+  "category": "category like Electronics, Furniture, Clothing, Stationery, Artisan Craft, etc.",
+  "notes": "condition notes and any visible damage or notable features"
 }
 
-If you cannot clearly identify any product from the catalog, set detected to false and sku/product_name to null with a low confidence.
-Be honest — do not guess randomly. Base your answer on what you actually see in the image.`;
+IMPORTANT: Always detect something if any object is visible. Be specific and accurate. Never return detected:false unless the image is completely blank or unidentifiable.`;
 
       const aiResponse = await openai.chat.completions.create({
-        model: 'claude-haiku-4.5',
+        model: 'gpt-4o-mini',
         messages: [
           {
             role: 'user',
@@ -360,20 +365,23 @@ Be honest — do not guess randomly. Base your answer on what you actually see i
             ]
           }
         ],
-        max_tokens: 500,
+        max_tokens: 600,
       });
 
       const rawContent = aiResponse.choices[0]?.message?.content || '{}';
       let aiResult: {
         detected: boolean;
+        object_name: string;
+        catalog_match: boolean;
         sku: string | null;
-        product_name: string | null;
         confidence: number;
         status: string;
         bounding_box: { x_pct: number; y_pct: number; w_pct: number; h_pct: number };
         color: string;
         texture: string;
+        brand: string | null;
         dimensions_estimate: string;
+        category: string;
         notes: string | null;
       };
 
@@ -384,70 +392,85 @@ Be honest — do not guess randomly. Base your answer on what you actually see i
         return res.status(500).json({ error: 'AI returned invalid response. Please try again.' });
       }
 
-      // Find matching product from catalog
-      let matchedProduct = productsList.find(p => p.sku === aiResult.sku);
-      if (!matchedProduct && aiResult.detected) {
-        matchedProduct = productsList.find(p =>
-          p.name.toLowerCase().includes((aiResult.product_name || '').toLowerCase())
-        );
-      }
-
-      if (!aiResult.detected || !matchedProduct) {
+      if (!aiResult.detected) {
         return res.json({
           success: false,
           detected: false,
-          message: 'No inventory item recognised in the image. Try holding the item closer and in better light.',
+          message: 'Could not identify any object in the image. Try better lighting or hold the item closer.',
           timestamp: new Date().toISOString()
         });
       }
 
-      // Convert percentage bounding box to safe values
-      const bb = aiResult.bounding_box || { x_pct: 20, y_pct: 20, w_pct: 60, h_pct: 60 };
+      // Try to find a matching product from catalog
+      let matchedProduct = productsList.find(p => p.sku === aiResult.sku);
+      if (!matchedProduct && aiResult.catalog_match && aiResult.object_name) {
+        matchedProduct = productsList.find(p =>
+          p.name.toLowerCase().split(' ').some(word =>
+            aiResult.object_name.toLowerCase().includes(word) && word.length > 3
+          )
+        );
+      }
+
+      // Safe bounding box
+      const bb = aiResult.bounding_box || { x_pct: 15, y_pct: 15, w_pct: 70, h_pct: 70 };
       const boundingBox = {
-        x_pct: Math.max(0, Math.min(95, bb.x_pct || 20)),
-        y_pct: Math.max(0, Math.min(95, bb.y_pct || 20)),
-        w_pct: Math.max(5, Math.min(100 - bb.x_pct, bb.w_pct || 60)),
-        h_pct: Math.max(5, Math.min(100 - bb.y_pct, bb.h_pct || 60)),
+        x_pct: Math.max(0, Math.min(80, Number(bb.x_pct) || 15)),
+        y_pct: Math.max(0, Math.min(80, Number(bb.y_pct) || 15)),
+        w_pct: Math.max(10, Math.min(85, Number(bb.w_pct) || 70)),
+        h_pct: Math.max(10, Math.min(85, Number(bb.h_pct) || 70)),
       };
 
-      // Update product scan metadata
-      await db.update(products)
-        .set({
-          detectedColor: aiResult.color || null,
-          detectedTexture: aiResult.texture || null,
-          detectedDimensions: aiResult.dimensions_estimate || null,
-          lastScannedAt: new Date().toISOString(),
-        })
-        .where(eq(products.id, matchedProduct.id));
+      // Use matched product SKU/id or generate a placeholder for unknown items
+      const displaySku = matchedProduct?.sku || `SCAN-${aiResult.category?.replace(/\s+/g, '-').toUpperCase().slice(0,8) || 'ITEM'}`;
+      const displayName = matchedProduct?.name || aiResult.object_name;
 
-      const visionLogData = {
-        productId: matchedProduct.id,
-        sku: matchedProduct.sku,
-        status: aiResult.status || 'OK',
-        confidenceScore: aiResult.confidence,
-        detectedClass: matchedProduct.name,
-        boundingBox: JSON.stringify(boundingBox),
-        imageData: null,
-        notes: aiResult.notes || null
-      };
+      // Log to vision status table (use first product as placeholder if no match)
+      const logProductId = matchedProduct?.id || productsList[0]?.id;
+      if (logProductId) {
+        const visionLogData = {
+          productId: logProductId,
+          sku: displaySku,
+          status: aiResult.status || 'OK',
+          confidenceScore: aiResult.confidence,
+          detectedClass: aiResult.object_name,
+          boundingBox: JSON.stringify(boundingBox),
+          imageData: null,
+          notes: aiResult.notes || null
+        };
+        await db.insert(visionStatusLogs).values(visionLogData);
 
-      await db.insert(visionStatusLogs).values(visionLogData);
-      await storage.logAction("SCAN", "PRODUCT", matchedProduct.id, 0, `AI Vision Scan: ${matchedProduct.name}`);
+        if (matchedProduct) {
+          await db.update(products)
+            .set({
+              detectedColor: aiResult.color || null,
+              detectedTexture: aiResult.texture || null,
+              detectedDimensions: aiResult.dimensions_estimate || null,
+              lastScannedAt: new Date().toISOString(),
+            })
+            .where(eq(products.id, matchedProduct.id));
+          await storage.logAction("SCAN", "PRODUCT", matchedProduct.id, 0, `AI Vision: ${aiResult.object_name}`);
+        }
+      }
 
       res.json({
         success: true,
         detected: true,
+        catalog_match: !!matchedProduct,
         data: {
-          product_id: matchedProduct.id,
-          product_name: matchedProduct.name,
-          sku: matchedProduct.sku,
+          product_id: matchedProduct?.id || null,
+          product_name: displayName,
+          sku: displaySku,
+          object_name: aiResult.object_name,
           confidence: aiResult.confidence,
           status: aiResult.status || 'OK',
           bounding_box: boundingBox,
           color: aiResult.color,
           texture: aiResult.texture,
+          brand: aiResult.brand || null,
           dimensions_estimate: aiResult.dimensions_estimate,
+          category: aiResult.category,
           notes: aiResult.notes,
+          in_inventory: !!matchedProduct,
           timestamp: new Date().toISOString(),
         }
       });
