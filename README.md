@@ -68,7 +68,7 @@ A comprehensive AI-powered asset verification and inventory management system bu
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/Ankit-Maurya-12223197/Ai-Powered-Inventory.git
+gh repo clone Ankit-Maurya-12223197/Ai-Powered-Inventory
 
 ```
 
