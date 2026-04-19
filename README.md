@@ -1,4 +1,4 @@
-# 🏭 Asset Verifier System
+# 🏭 Ai Powered Inventory Management System
 
 A comprehensive AI-powered asset verification and inventory management system built with modern technologies. This system combines computer vision, machine learning forecasting, and intelligent chatbot assistance to streamline asset management workflows.
 
@@ -68,8 +68,8 @@ A comprehensive AI-powered asset verification and inventory management system bu
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/vaibhavrxj/-vaibhav-asset-intelligence.git
-cd -vaibhav-asset-intelligence
+git clone https://github.com/Ankit-Maurya-12223197/Ai-Powered-Inventory.git
+
 ```
 
 2. **Install Node.js dependencies**
@@ -216,14 +216,6 @@ For production, ensure these environment variables are set:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🆘 Support
-
-If you encounter any issues or have questions:
-
-1. Check the [Issues](https://github.com/vaibhavrxj/-vaibhav-asset-intelligence/issues) page
-2. Create a new issue with detailed information
-3. Join our community discussions
-
 ## 🎯 Roadmap
 
 - [ ] **Mobile Application** - React Native implementation
@@ -235,6 +227,5 @@ If you encounter any issues or have questions:
 
 ---
 
-**Made with ❤️ by Vaibhav**
+**Made with ❤️ by Ankit**
 
-For more information, visit our [documentation](https://github.com/vaibhavrxj/-vaibhav-asset-intelligence/wiki) or check out the [live demo](https://vaibhavrxj.github.io/-vaibhav-asset-intelligence).
