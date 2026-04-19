@@ -2,8 +2,9 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useMaterials, useCreateMaterial } from "@/hooks/use-inventory";
-import { insertMaterialSchema } from "@shared/schema";
+import { useMaterials, useCreateMaterial, useUpdateMaterial } from "@/hooks/use-inventory";
+import { insertMaterialSchema, type Material } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
 import { 
   Table, 
   TableBody, 
@@ -40,13 +41,23 @@ const materialFormSchema = insertMaterialSchema.extend({
   minStockLevel: z.coerce.number().min(0),
 });
 
+const materialEditSchema = z.object({
+  quantity: z.coerce.number().min(0, "Stock cannot be negative"),
+  costPerUnit: z.coerce.number().min(0, "Cost cannot be negative"),
+  minStockLevel: z.coerce.number().min(0, "Minimum stock cannot be negative"),
+});
+
 type MaterialFormValues = z.infer<typeof materialFormSchema>;
+type MaterialEditValues = z.infer<typeof materialEditSchema>;
 
 export default function Materials() {
   const [isOpen, setIsOpen] = useState(false);
+  const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
   const [search, setSearch] = useState("");
   const { data: materials, isLoading } = useMaterials();
   const createMaterial = useCreateMaterial();
+  const updateMaterial = useUpdateMaterial();
+  const { toast } = useToast();
 
   const form = useForm<MaterialFormValues>({
     resolver: zodResolver(materialFormSchema),
@@ -60,6 +71,15 @@ export default function Materials() {
     },
   });
 
+  const editForm = useForm<MaterialEditValues>({
+    resolver: zodResolver(materialEditSchema),
+    defaultValues: {
+      quantity: 0,
+      costPerUnit: 0,
+      minStockLevel: 0,
+    },
+  });
+
   const onSubmit = (data: MaterialFormValues) => {
     createMaterial.mutate(data, {
       onSuccess: () => {
@@ -67,6 +87,45 @@ export default function Materials() {
         form.reset();
       },
     });
+  };
+
+  const openEditDialog = (material: Material) => {
+    setEditingMaterial(material);
+    editForm.reset({
+      quantity: material.quantity,
+      costPerUnit: material.costPerUnit,
+      minStockLevel: material.minStockLevel ?? 0,
+    });
+  };
+
+  const onEditSubmit = (data: MaterialEditValues) => {
+    if (!editingMaterial) return;
+
+    updateMaterial.mutate(
+      {
+        id: editingMaterial.id,
+        quantity: data.quantity,
+        costPerUnit: data.costPerUnit,
+        minStockLevel: data.minStockLevel,
+      },
+      {
+        onSuccess: () => {
+          toast({
+            title: "Material updated",
+            description: `${editingMaterial.name} has been updated successfully.`,
+          });
+          setEditingMaterial(null);
+          editForm.reset();
+        },
+        onError: () => {
+          toast({
+            title: "Update failed",
+            description: "Could not update this material right now.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
   };
 
   const filteredMaterials = materials?.filter(m => 
@@ -219,18 +278,19 @@ export default function Materials() {
                 <TableHead>Cost / Unit</TableHead>
                 <TableHead>Current Stock</TableHead>
                 <TableHead>Total Value</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center">
+                  <TableCell colSpan={6} className="h-24 text-center">
                     Loading materials...
                   </TableCell>
                 </TableRow>
               ) : filteredMaterials?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                     No materials found.
                   </TableCell>
                 </TableRow>
@@ -258,6 +318,16 @@ export default function Materials() {
                     <TableCell className="font-mono text-muted-foreground">
                       ₹{(item.quantity * item.costPerUnit).toLocaleString('en-IN')}
                     </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => openEditDialog(item)}
+                      >
+                        Edit
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -265,6 +335,80 @@ export default function Materials() {
           </Table>
         </div>
       </Card>
+
+      <Dialog
+        open={!!editingMaterial}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingMaterial(null);
+            editForm.reset();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Edit Material</DialogTitle>
+            <DialogDescription>
+              Update stock, minimum stock, and cost for {editingMaterial?.name ?? "this material"}.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4 pt-4">
+              <FormField
+                control={editForm.control}
+                name="quantity"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Current Stock</FormLabel>
+                    <FormControl>
+                      <Input type="number" min="0" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="minStockLevel"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Minimum Stock Level</FormLabel>
+                    <FormControl>
+                      <Input type="number" min="0" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="costPerUnit"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Cost Per Unit (Rs.)</FormLabel>
+                    <FormControl>
+                      <Input type="number" min="0" step="0.01" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => setEditingMaterial(null)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={updateMaterial.isPending}>
+                  {updateMaterial.isPending ? "Saving..." : "Save changes"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

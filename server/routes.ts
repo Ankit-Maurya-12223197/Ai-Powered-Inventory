@@ -214,7 +214,21 @@ export async function registerRoutes(
   app.post(api.sales.create.path, async (req, res) => {
     try {
       const input = api.sales.create.input.parse(req.body);
-      const sale = await storage.createSale(input);
+      const product = await storage.getProduct(input.productId);
+      if (!product) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      if (input.quantity < 1 || input.quantity > product.quantity) {
+        return res.status(400).json({
+          message: `Quantity sold must be between 1 and ${product.quantity} for ${product.name}`,
+        });
+      }
+
+      const expectedTotal = Number((product.price * input.quantity).toFixed(2));
+      const sale = await storage.createSale({
+        ...input,
+        totalPrice: expectedTotal,
+      });
       res.status(201).json(sale);
     } catch (err) {
        if (err instanceof z.ZodError) {

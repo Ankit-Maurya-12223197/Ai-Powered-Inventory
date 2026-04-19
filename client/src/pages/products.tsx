@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useProducts, useCreateProduct, useForecast, useReorderProduct } from "@/hooks/use-inventory";
-import { insertProductSchema } from "@shared/schema";
+import { useProducts, useCreateProduct, useForecast, useReorderProduct, useUpdateProduct } from "@/hooks/use-inventory";
+import { insertProductSchema, type Product } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Table, 
@@ -31,7 +31,7 @@ import {
   FormMessage 
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, AlertCircle, ScanBarcode, ShoppingCart, TrendingDown } from "lucide-react";
+import { Plus, Search, AlertCircle, ShoppingCart, TrendingDown } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -41,14 +41,22 @@ const productFormSchema = insertProductSchema.extend({
   price: z.coerce.number().min(0),
 });
 
+const productEditSchema = z.object({
+  quantity: z.coerce.number().min(0, "Stock level cannot be negative"),
+  price: z.coerce.number().min(0, "Price cannot be negative"),
+});
+
 type ProductFormValues = z.infer<typeof productFormSchema>;
+type ProductEditValues = z.infer<typeof productEditSchema>;
 
 export default function Products() {
   const [isOpen, setIsOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [search, setSearch] = useState("");
   const { data: products, isLoading } = useProducts();
   const { data: forecasts } = useForecast();
   const createProduct = useCreateProduct();
+  const updateProduct = useUpdateProduct();
   const reorderProduct = useReorderProduct();
   const { toast } = useToast();
 
@@ -85,6 +93,14 @@ export default function Products() {
     },
   });
 
+  const editForm = useForm<ProductEditValues>({
+    resolver: zodResolver(productEditSchema),
+    defaultValues: {
+      quantity: 0,
+      price: 0,
+    },
+  });
+
   const onSubmit = (data: ProductFormValues) => {
     createProduct.mutate(data, {
       onSuccess: () => {
@@ -92,6 +108,43 @@ export default function Products() {
         form.reset();
       },
     });
+  };
+
+  const openEditDialog = (product: Product) => {
+    setEditingProduct(product);
+    editForm.reset({
+      quantity: product.quantity,
+      price: product.price,
+    });
+  };
+
+  const onEditSubmit = (data: ProductEditValues) => {
+    if (!editingProduct) return;
+
+    updateProduct.mutate(
+      {
+        id: editingProduct.id,
+        quantity: data.quantity,
+        price: data.price,
+      },
+      {
+        onSuccess: () => {
+          toast({
+            title: "Product updated",
+            description: `${editingProduct.name} now has ${data.quantity} units at Rs. ${data.price.toLocaleString("en-IN")}.`,
+          });
+          setEditingProduct(null);
+          editForm.reset();
+        },
+        onError: () => {
+          toast({
+            title: "Update failed",
+            description: "Could not update this product right now.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
   };
 
   const filteredProducts = products?.filter(p => 
@@ -231,7 +284,6 @@ export default function Products() {
                 <TableHead>Price</TableHead>
                 <TableHead>Stock Level</TableHead>
                 <TableHead>Prediction</TableHead>
-                <TableHead>Vision Data</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -320,31 +372,13 @@ export default function Products() {
                         );
                       })()}
                     </TableCell>
-                    <TableCell>
-                      {product.detectedColor || product.detectedDimensions ? (
-                        <div className="flex flex-col gap-1">
-                          {product.detectedColor && (
-                            <div className="flex items-center gap-1.5 text-xs">
-                              <div 
-                                className="w-2 h-2 rounded-full border border-border" 
-                                style={{ backgroundColor: product.detectedColor.toLowerCase() }} 
-                              />
-                              <span className="capitalize">{product.detectedColor}</span>
-                            </div>
-                          )}
-                          {product.detectedDimensions && (
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
-                              <ScanBarcode className="w-3 h-3" />
-                              {product.detectedDimensions}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground italic">No scan data</span>
-                      )}
-                    </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => openEditDialog(product)}
+                      >
                         Edit
                       </Button>
                     </TableCell>
@@ -355,6 +389,66 @@ export default function Products() {
           </Table>
         </div>
       </Card>
+
+      <Dialog
+        open={!!editingProduct}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingProduct(null);
+            editForm.reset();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Edit Product</DialogTitle>
+            <DialogDescription>
+              Update the stock level and unit price for {editingProduct?.name ?? "this product"}.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4 pt-4">
+              <FormField
+                control={editForm.control}
+                name="quantity"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Stock Level</FormLabel>
+                    <FormControl>
+                      <Input type="number" min="0" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="price"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Unit Price (Rs.)</FormLabel>
+                    <FormControl>
+                      <Input type="number" min="0" step="0.01" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => setEditingProduct(null)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={updateProduct.isPending}>
+                  {updateProduct.isPending ? "Saving..." : "Save changes"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

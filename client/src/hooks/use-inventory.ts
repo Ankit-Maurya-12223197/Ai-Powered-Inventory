@@ -35,6 +35,25 @@ export function useCreateMaterial() {
   });
 }
 
+export function useUpdateMaterial() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...data }: { id: number } & Partial<InsertMaterial>) => {
+      const url = buildUrl(api.materials.update.path, { id });
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to update material");
+      return api.materials.update.responses[200].parse(await res.json());
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.materials.list.path] });
+    },
+  });
+}
+
 // ==========================================
 // PRODUCTS
 // ==========================================

@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useSales, useCreateSale, useProducts } from "@/hooks/use-inventory";
 import { insertSaleSchema } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
 import { 
   Table, 
   TableBody, 
@@ -54,24 +55,60 @@ export default function Sales() {
   const { data: sales, isLoading } = useSales();
   const { data: products } = useProducts();
   const createSale = useCreateSale();
+  const { toast } = useToast();
 
   const form = useForm<SaleFormValues>({
     resolver: zodResolver(saleFormSchema),
     defaultValues: {
+      productId: undefined,
       quantity: 1,
       totalPrice: 0,
     },
   });
 
+  const selectedProductId = form.watch("productId");
+  const selectedQuantity = form.watch("quantity");
+  const selectedProduct = useMemo(
+    () => products?.find((product) => product.id === selectedProductId),
+    [products, selectedProductId],
+  );
+
   // Auto-calculate price when product or quantity changes
   const updatePrice = (productId: number, quantity: number) => {
     const product = products?.find(p => p.id === productId);
     if (product) {
-      form.setValue('totalPrice', Number((product.price * quantity).toFixed(2)));
+      const safeQuantity = Math.max(1, Math.min(quantity || 1, product.quantity));
+      if (safeQuantity !== quantity) {
+        form.setValue("quantity", safeQuantity, { shouldValidate: true });
+      }
+      form.setValue('totalPrice', Number((product.price * safeQuantity).toFixed(2)));
+    } else {
+      form.setValue("totalPrice", 0);
     }
   };
 
   const onSubmit = (data: SaleFormValues) => {
+    const product = products?.find((item) => item.id === data.productId);
+    if (!product) {
+      toast({
+        title: "Select a product",
+        description: "Please choose a product before recording a sale.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (data.quantity > product.quantity) {
+      toast({
+        title: "Quantity exceeds stock",
+        description: `Only ${product.quantity} units of ${product.name} are currently available.`,
+        variant: "destructive",
+      });
+      form.setValue("quantity", Math.max(1, product.quantity), { shouldValidate: true });
+      updatePrice(product.id, Math.max(1, product.quantity));
+      return;
+    }
+
     createSale.mutate(data, {
       onSuccess: () => {
         setIsOpen(false);
@@ -115,10 +152,11 @@ export default function Sales() {
                       <FormLabel>Product</FormLabel>
                       <Select 
                         onValueChange={(val) => {
-                          field.onChange(val);
-                          updatePrice(Number(val), form.getValues('quantity'));
+                          const productId = Number(val);
+                          field.onChange(productId);
+                          updatePrice(productId, form.getValues('quantity'));
                         }} 
-                        defaultValue={field.value?.toString()}
+                        value={field.value?.toString()}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -147,13 +185,21 @@ export default function Sales() {
                       <FormControl>
                         <Input 
                           type="number" 
+                          min={selectedProduct ? 1 : undefined}
+                          max={selectedProduct?.quantity || undefined}
                           {...field} 
                           onChange={(e) => {
                             field.onChange(e);
                             updatePrice(form.getValues('productId'), Number(e.target.value));
                           }}
+                          disabled={!selectedProduct || selectedProduct.quantity === 0}
                         />
                       </FormControl>
+                      {selectedProduct && (
+                        <p className="text-xs text-muted-foreground">
+                          Allowed range: 1 to {selectedProduct.quantity} units
+                        </p>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -168,13 +214,21 @@ export default function Sales() {
                       <FormControl>
                         <Input type="number" step="0.01" {...field} readOnly className="bg-muted font-bold" />
                       </FormControl>
+                      {selectedProduct && (
+                        <p className="text-xs text-muted-foreground">
+                          {selectedQuantity || 0} × ₹{selectedProduct.price.toLocaleString("en-IN")} = ₹{(field.value || 0).toLocaleString("en-IN")}
+                        </p>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
                 />
 
                 <div className="flex justify-end pt-4">
-                  <Button type="submit" disabled={createSale.isPending}>
+                  <Button
+                    type="submit"
+                    disabled={createSale.isPending || !selectedProduct || selectedProduct.quantity === 0}
+                  >
                     {createSale.isPending ? "Processing..." : "Complete Sale"}
                   </Button>
                 </div>
